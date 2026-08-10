@@ -1,0 +1,265 @@
+from datetime import datetime, date, time, timedelta
+from typing import Tuple, Dict, Any, Optional
+from sqlalchemy.orm import Session
+from fastapi import HTTPException, status
+from app.models.domain import (
+    Employee, StoreSettings, FaceEncoding, Attendance, 
+    AttendanceLog, AttendanceStatusEnum, Notification, NotificationTypeEnum, User
+)
+from app.services.geo_service import calculate_haversine_distance
+from app.services.face_service import base64_to_cv2, extract_face_encoding, compare_face_encodings
+
+def get_store_settings(db: Session) -> StoreSettings:
+    settings = db.query(StoreSettings).first()
+    if not settings:
+        # Create default store settings if none exists
+        settings = StoreSettings()
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+    return settings
+
+def process_check_in(
+    db: Session,
+    employee: Employee,
+    image_base64: str,
+    lat: float,
+    lng: float,
+    device_info: str = "Web Camera",
+    ip_address: str = "127.0.0.1"
+) -> Attendance:
+    store = get_store_settings(db)
+    today = date.today()
+    now = datetime.now()
+
+    # 1. Geofence Distance Check
+    distance = calculate_haversine_distance(lat, lng, store.latitude, store.longitude)
+    if distance > store.radius_meters:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"You are outside the allowed attendance area. Distance to store is {distance:.1f}m (Allowed: {store.radius_meters:.1f}m)."
+        )
+
+    # 2. Check duplicate Check-In for today
+    existing_attendance = db.query(Attendance).filter(
+        Attendance.employee_id == employee.id,
+        Attendance.date == today
+    ).first()
+
+    if existing_attendance and existing_attendance.check_in_time is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You have already checked in for today."
+        )
+
+    # 3. Face Recognition Verification
+    try:
+        cv2_img = base64_to_cv2(image_base64)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid image payload format.")
+
+    query_encoding, face_count, face_msg = extract_face_encoding(cv2_img)
+    if face_count != 1 or query_encoding is None:
+        raise HTTPException(status_code=400, detail=face_msg)
+
+    # Load employee registered face encodings
+    registered = db.query(FaceEncoding).filter(FaceEncoding.employee_id == employee.id).all()
+    if not registered:
+        raise HTTPException(
+            status_code=400,
+            detail="No face encodings registered for your profile. Contact Admin to upload 5-10 face photos."
+        )
+
+    reg_encodings = [item.encoding_data for item in registered]
+    score, is_match, comp_msg = compare_face_encodings(query_encoding, reg_encodings, threshold=store.face_confidence_threshold)
+
+    if not is_match:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Face recognition failed. Confidence score {score * 100:.1f}% is below required threshold ({store.face_confidence_threshold * 100:.1f}%)."
+        )
+
+    # 4. Calculate Attendance Status & Late/Early Minutes
+    work_start_dt = datetime.combine(today, employee.work_start_time)
+    late_deadline_dt = work_start_dt + timedelta(minutes=store.late_tolerance_min)
+
+    late_minutes = 0
+    early_arrival_minutes = 0
+    att_status = AttendanceStatusEnum.ON_TIME
+
+    if now > late_deadline_dt:
+        att_status = AttendanceStatusEnum.LATE
+        late_minutes = int((now - work_start_dt).total_seconds() / 60)
+    elif now < work_start_dt:
+        att_status = AttendanceStatusEnum.EARLY_ARRIVAL
+        early_arrival_minutes = int((work_start_dt - now).total_seconds() / 60)
+
+    # 5. Save or Update Attendance Record
+    if not existing_attendance:
+        attendance = Attendance(
+            employee_id=employee.id,
+            date=today,
+            check_in_time=now,
+            status=att_status,
+            late_minutes=late_minutes,
+            early_arrival_minutes=early_arrival_minutes,
+            check_in_lat=lat,
+            check_in_lng=lng,
+            check_in_distance=distance,
+            check_in_score=score,
+            device_info=device_info,
+            ip_address=ip_address
+        )
+        db.add(attendance)
+    else:
+        attendance = existing_attendance
+        attendance.check_in_time = now
+        attendance.status = att_status
+        attendance.late_minutes = late_minutes
+        attendance.early_arrival_minutes = early_arrival_minutes
+        attendance.check_in_lat = lat
+        attendance.check_in_lng = lng
+        attendance.check_in_distance = distance
+        attendance.check_in_score = score
+        attendance.device_info = device_info
+        attendance.ip_address = ip_address
+
+    db.commit()
+    db.refresh(attendance)
+
+    # 6. Log Event
+    log = AttendanceLog(
+        attendance_id=attendance.id,
+        employee_id=employee.id,
+        action="CHECK_IN",
+        timestamp=now,
+        latitude=lat,
+        longitude=lng,
+        distance=distance,
+        recognition_score=score,
+        status=att_status.value,
+        device=device_info,
+        ip_address=ip_address
+    )
+    db.add(log)
+
+    # Send Notification if Late
+    if att_status == AttendanceStatusEnum.LATE:
+        notif = Notification(
+            user_id=employee.user_id,
+            title="Late Check-In Warning",
+            message=f"You checked in {late_minutes} minutes past scheduled work time ({employee.work_start_time.strftime('%H:%M')}).",
+            type=NotificationTypeEnum.LATE_WARNING
+        )
+        db.add(notif)
+
+    db.commit()
+    return attendance
+
+def process_check_out(
+    db: Session,
+    employee: Employee,
+    image_base64: str,
+    lat: float,
+    lng: float,
+    device_info: str = "Web Camera",
+    ip_address: str = "127.0.0.1"
+) -> Attendance:
+    store = get_store_settings(db)
+    today = date.today()
+    now = datetime.now()
+
+    # 1. Check existing attendance record
+    attendance = db.query(Attendance).filter(
+        Attendance.employee_id == employee.id,
+        Attendance.date == today
+    ).first()
+
+    if not attendance or not attendance.check_in_time:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You must perform Check In before checking out."
+        )
+
+    if attendance.check_out_time is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You have already checked out for today."
+        )
+
+    # 2. Geofence Check
+    distance = calculate_haversine_distance(lat, lng, store.latitude, store.longitude)
+    if distance > store.radius_meters:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"You are outside the allowed attendance area. Distance is {distance:.1f}m (Allowed: {store.radius_meters:.1f}m)."
+        )
+
+    # 3. Face Recognition Verification
+    try:
+        cv2_img = base64_to_cv2(image_base64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid image format.")
+
+    query_encoding, face_count, face_msg = extract_face_encoding(cv2_img)
+    if face_count != 1 or query_encoding is None:
+        raise HTTPException(status_code=400, detail=face_msg)
+
+    registered = db.query(FaceEncoding).filter(FaceEncoding.employee_id == employee.id).all()
+    reg_encodings = [item.encoding_data for item in registered]
+    score, is_match, comp_msg = compare_face_encodings(query_encoding, reg_encodings, threshold=store.face_confidence_threshold)
+
+    if not is_match:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Face recognition failed. Confidence score {score * 100:.1f}% is below required threshold ({store.face_confidence_threshold * 100:.1f}%)."
+        )
+
+    # 4. Calculate Worked Hours, Early Leave, & Overtime
+    work_end_dt = datetime.combine(today, employee.work_end_time)
+    early_deadline_dt = work_end_dt - timedelta(minutes=store.early_leave_tolerance_min)
+
+    worked_seconds = (now - attendance.check_in_time).total_seconds()
+    worked_hours = round(worked_seconds / 3600.0, 2)
+
+    early_leave_minutes = 0
+    if now < early_deadline_dt:
+        early_leave_minutes = int((work_end_dt - now).total_seconds() / 60)
+        attendance.status = AttendanceStatusEnum.EARLY_LEAVE
+
+    overtime_minutes = 0
+    if now > work_end_dt:
+        overtime_minutes = int((now - work_end_dt).total_seconds() / 60)
+        if attendance.status != AttendanceStatusEnum.LATE and attendance.status != AttendanceStatusEnum.EARLY_LEAVE:
+            attendance.status = AttendanceStatusEnum.OVERTIME
+
+    attendance.check_out_time = now
+    attendance.worked_hours = worked_hours
+    attendance.early_leave_minutes = early_leave_minutes
+    attendance.overtime_minutes = overtime_minutes
+    attendance.check_out_lat = lat
+    attendance.check_out_lng = lng
+    attendance.check_out_distance = distance
+    attendance.check_out_score = score
+
+    db.commit()
+    db.refresh(attendance)
+
+    # 5. Log Event
+    log = AttendanceLog(
+        attendance_id=attendance.id,
+        employee_id=employee.id,
+        action="CHECK_OUT",
+        timestamp=now,
+        latitude=lat,
+        longitude=lng,
+        distance=distance,
+        recognition_score=score,
+        status=attendance.status.value,
+        device=device_info,
+        ip_address=ip_address
+    )
+    db.add(log)
+    db.commit()
+
+    return attendance

@@ -1,0 +1,10 @@
+{
+  "name": "timework-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "./venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
+    "start": "./venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000",
+    "start:dev": "./venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000"
+  }
+}
