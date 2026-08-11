@@ -6,6 +6,7 @@ from app.models.domain import (
     Employee, StoreSettings, FaceEncoding, Attendance, 
     AttendanceLog, AttendanceStatusEnum, Notification, NotificationTypeEnum, User
 )
+from app.core.time_utils import get_uzb_now, get_uzb_today
 from app.services.geo_service import calculate_haversine_distance
 from app.services.face_service import base64_to_cv2, extract_face_encoding, compare_face_encodings
 
@@ -29,8 +30,8 @@ def process_check_in(
     ip_address: str = "127.0.0.1"
 ) -> Attendance:
     store = get_store_settings(db)
-    today = date.today()
-    now = datetime.now()
+    today = get_uzb_today()
+    now = get_uzb_now()
 
     # 1. Geofence Distance Check
     distance = calculate_haversine_distance(lat, lng, store.latitude, store.longitude)
@@ -166,8 +167,8 @@ def process_check_out(
     ip_address: str = "127.0.0.1"
 ) -> Attendance:
     store = get_store_settings(db)
-    today = date.today()
-    now = datetime.now()
+    today = get_uzb_today()
+    now = get_uzb_now()
 
     # 1. Check existing attendance record
     attendance = db.query(Attendance).filter(

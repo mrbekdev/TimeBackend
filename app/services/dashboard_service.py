@@ -4,9 +4,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.models.domain import Employee, Attendance, AttendanceStatusEnum, User, StoreSettings
 from app.schemas.domain_schemas import AdminDashboardStats, EmployeeDashboardStats, AttendanceOut
+from app.core.time_utils import get_uzb_now, get_uzb_today
 
 def get_admin_dashboard_metrics(db: Session) -> AdminDashboardStats:
-    today = date.today()
+    today = get_uzb_today()
     total_employees = db.query(Employee).filter(Employee.is_active == True).count()
 
     attendances_today = db.query(Attendance).filter(Attendance.date == today).all()
@@ -68,7 +69,7 @@ def get_admin_dashboard_metrics(db: Session) -> AdminDashboardStats:
     )
 
 def get_employee_dashboard_metrics(db: Session, employee: Employee) -> EmployeeDashboardStats:
-    today = date.today()
+    today = get_uzb_today()
     
     # Today attendance
     today_att = db.query(Attendance).filter(

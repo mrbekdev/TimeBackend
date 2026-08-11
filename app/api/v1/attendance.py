@@ -11,6 +11,7 @@ from app.schemas.domain_schemas import (
     ExpressAttendanceRequest, ExpressAttendanceResponse,
     ManualAttendanceRequest
 )
+from app.core.time_utils import get_uzb_now, get_uzb_today
 from app.services.attendance_service import process_check_in, process_check_out, get_store_settings
 from app.services.geo_service import calculate_haversine_distance
 from app.services.face_service import base64_to_cv2, extract_face_encoding, compare_face_encodings
@@ -126,7 +127,7 @@ def express_scan(
 
 @router.get("/kiosk-employees", response_model=List[KioskEmployeeSummary])
 def list_kiosk_employees(db: Session = Depends(get_db)):
-    today = date.today()
+    today = get_uzb_today()
     employees = db.query(Employee).filter(Employee.is_active == True).all()
 
     summaries = []
