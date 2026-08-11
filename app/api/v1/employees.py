@@ -32,14 +32,19 @@ def parse_time_str(time_str: str) -> time:
 @router.get("", response_model=List[EmployeeOut])
 @router.get("/", response_model=List[EmployeeOut])
 def list_employees(
+    store_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    employees = db.query(Employee).all()
+    query = db.query(Employee)
+    if store_id:
+        query = query.filter(Employee.store_id == store_id)
+    employees = query.all()
     out = []
     for emp in employees:
         u = emp.user
         dept = emp.department
+        st = emp.store
         face_count = len(emp.face_encodings)
         out.append(EmployeeOut(
             id=emp.id,
@@ -52,6 +57,9 @@ def list_employees(
             position=emp.position,
             department_id=emp.department_id,
             department=dept,
+            store_id=emp.store_id,
+            store=st,
+            store_name=st.store_name if st else None,
             monthly_salary=emp.monthly_salary,
             employment_date=emp.employment_date,
             work_start_time=emp.work_start_time.strftime("%H:%M"),
@@ -94,6 +102,7 @@ def create_employee(
         phone=payload.phone,
         position=payload.position,
         department_id=payload.department_id,
+        store_id=payload.store_id,
         monthly_salary=payload.monthly_salary,
         employment_date=payload.employment_date or datetime.utcnow().date(),
         work_start_time=start_t,
@@ -103,6 +112,8 @@ def create_employee(
     db.add(emp)
     db.commit()
     db.refresh(emp)
+
+    st = emp.store
 
     return EmployeeOut(
         id=emp.id,
@@ -115,6 +126,9 @@ def create_employee(
         position=emp.position,
         department_id=emp.department_id,
         department=emp.department,
+        store_id=emp.store_id,
+        store=st,
+        store_name=st.store_name if st else None,
         monthly_salary=emp.monthly_salary,
         employment_date=emp.employment_date,
         work_start_time=emp.work_start_time.strftime("%H:%M"),
@@ -142,6 +156,7 @@ def update_employee(
     if payload.phone is not None: emp.phone = payload.phone
     if payload.position is not None: emp.position = payload.position
     if payload.department_id is not None: emp.department_id = payload.department_id
+    if payload.store_id is not None: emp.store_id = payload.store_id
     if payload.monthly_salary is not None: emp.monthly_salary = payload.monthly_salary
     if payload.work_start_time is not None: emp.work_start_time = parse_time_str(payload.work_start_time)
     if payload.work_end_time is not None: emp.work_end_time = parse_time_str(payload.work_end_time)
@@ -156,6 +171,8 @@ def update_employee(
     db.commit()
     db.refresh(emp)
 
+    st = emp.store
+
     return EmployeeOut(
         id=emp.id,
         user_id=emp.user_id,
@@ -167,6 +184,9 @@ def update_employee(
         position=emp.position,
         department_id=emp.department_id,
         department=emp.department,
+        store_id=emp.store_id,
+        store=st,
+        store_name=st.store_name if st else None,
         monthly_salary=emp.monthly_salary,
         employment_date=emp.employment_date,
         work_start_time=emp.work_start_time.strftime("%H:%M"),

@@ -17,6 +17,7 @@ def build_report_query(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     department_id: Optional[int] = None,
+    store_id: Optional[int] = None,
     employee_id: Optional[int] = None,
     report_type: str = "daily"
 ):
@@ -29,6 +30,8 @@ def build_report_query(
     
     if department_id:
         query = query.filter(Employee.department_id == department_id)
+    if store_id:
+        query = query.filter(Employee.store_id == store_id)
     if employee_id:
         query = query.filter(Attendance.employee_id == employee_id)
 
@@ -44,33 +47,65 @@ def format_report_data(attendances: List[Attendance]) -> List[Dict[str, Any]]:
     for att in attendances:
         emp = att.employee
         dept = emp.department.name if emp and emp.department else "General"
+        
+        # Translate Department Name
+        dept_translated = dept
+        if dept and dept != "General":
+            dept_lower = dept.lower()
+            if "sales" in dept_lower:
+                dept_translated = "Савдо зали"
+            elif "warehouse" in dept_lower:
+                dept_translated = "Омборхона"
+            elif "admin" in dept_lower:
+                dept_translated = "Маъмурият"
+            elif "finance" in dept_lower or "account" in dept_lower:
+                dept_translated = "Бухгалтерия"
+            elif "cashier" in dept_lower:
+                dept_translated = "Касса бўлими"
+
         emp_name = f"{emp.first_name} {emp.last_name}" if emp else f"ID: {att.employee_id}"
         
-        in_str = att.check_in_time.strftime("%Y-%m-%d %H:%M:%S") if att.check_in_time else "N/A"
-        out_str = att.check_out_time.strftime("%Y-%m-%d %H:%M:%S") if att.check_out_time else "N/A"
+        in_str = att.check_in_time.strftime("%Y-%m-%d %H:%M:%S") if att.check_in_time else "—"
+        out_str = att.check_out_time.strftime("%Y-%m-%d %H:%M:%S") if att.check_out_time else "—"
+
+        # Status Translation
+        status_val = att.status.value if hasattr(att.status, "value") else str(att.status)
+        status_translated = status_val
+        if status_val == "LATE" or (att.late_minutes and att.late_minutes > 0):
+            status_translated = "Кечикди"
+        elif status_val == "EARLY_LEAVE" or (att.early_leave_minutes and att.early_leave_minutes > 0):
+            status_translated = "Эрта кетди"
+        elif status_val in ["ON_TIME", "PRESENT"]:
+            status_translated = "Ўз вақтида"
+        elif status_val == "EARLY_ARRIVAL":
+            status_translated = "Вақтли келди"
+        elif status_val == "ABSENT":
+            status_translated = "Келмади"
+        elif status_val == "OVERTIME":
+            status_translated = "Овертайм"
 
         rows.append({
-            "Attendance ID": att.id,
-            "Employee": emp_name,
-            "Department": dept,
-            "Position": emp.position if emp else "N/A",
-            "Date": str(att.date),
-            "Status": att.status.value,
-            "Check In": in_str,
-            "Check Out": out_str,
-            "Worked Hours": att.worked_hours,
-            "Late (Min)": att.late_minutes,
-            "Early Leave (Min)": att.early_leave_minutes,
-            "Early Arrival (Min)": getattr(att, "early_arrival_minutes", 0) or 0,
-            "Overtime (Min)": att.overtime_minutes,
-            "Distance (m)": att.check_in_distance or 0.0,
-            "Face Confidence": f"{((att.check_in_score or 0) * 100):.1f}%"
+            "Давомат ID": att.id,
+            "Ходим": emp_name,
+            "Бўлим": dept_translated,
+            "Лавозим": emp.position if emp else "—",
+            "Сана": str(att.date),
+            "Статус": status_translated,
+            "Келиш вақти": in_str,
+            "Кетиш вақти": out_str,
+            "Иш соати": att.worked_hours or 0,
+            "Кечикиш (дақиқа)": att.late_minutes or 0,
+            "Эрта кетиш (дақиқа)": att.early_leave_minutes or 0,
+            "Вақтли келиш (дақиқа)": getattr(att, "early_arrival_minutes", 0) or 0,
+            "Овертайм (дақиқа)": att.overtime_minutes or 0,
+            "Масофа (метр)": round(att.check_in_distance or 0.0, 1),
+            "FaceID Мослик %": f"{((att.check_in_score or 0) * 100):.1f}%"
         })
     return rows
 
 def generate_csv_report(data: List[Dict[str, Any]]) -> str:
     if not data:
-        return "No attendance records found for selected filter."
+        return "Кўрсатилган фильтр бўйича давомат маълумотлари топилмади."
     
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=list(data[0].keys()))
@@ -80,18 +115,18 @@ def generate_csv_report(data: List[Dict[str, Any]]) -> str:
 
 def generate_excel_report(data: List[Dict[str, Any]]) -> bytes:
     if not data:
-        df = pd.DataFrame([{"Message": "No data found"}])
+        df = pd.DataFrame([{"Хабар": "Маълумот топилмади"}])
     else:
         df = pd.DataFrame(data)
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Attendance Report')
+        df.to_excel(writer, index=False, sheet_name='Давомат Ҳисоботи')
     return output.getvalue()
 
-def generate_pdf_report(data: List[Dict[str, Any]], title: str = "Attendance Report") -> bytes:
+def generate_pdf_report(data: List[Dict[str, Any]], title: str = "Давомат Ҳисоботи") -> bytes:
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15, leftMargin=15, topMargin=20, bottomMargin=20)
     story = []
 
     styles = getSampleStyleSheet()
@@ -104,26 +139,28 @@ def generate_pdf_report(data: List[Dict[str, Any]], title: str = "Attendance Rep
     )
 
     story.append(Paragraph(f"TimeWork - {title}", title_style))
-    story.append(Paragraph(f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    story.append(Paragraph(f"Ҳисобот вақти: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
     story.append(Spacer(1, 15))
 
     if not data:
-        story.append(Paragraph("No records found for the given criteria.", styles['Normal']))
+        story.append(Paragraph("Кўрсатилган фильтр бўйича маълумот топилмади.", styles['Normal']))
     else:
-        # Table Headers
-        headers = ["Emp Name", "Dept", "Date", "Status", "Check In", "Check Out", "Worked (h)", "Late (m)"]
+        # Table Headers in Uzbek
+        headers = ["Ходим", "Бўлим", "Сана", "Статус", "Келиш", "Кетиш", "Иш соати", "Кечикиш (мин)"]
         table_data = [headers]
 
         for row in data:
+            check_in_val = str(row.get("Келиш вақти") or row.get("Check In") or "")
+            check_out_val = str(row.get("Кетиш вақти") or row.get("Check Out") or "")
             table_data.append([
-                row.get("Employee", ""),
-                row.get("Department", ""),
-                row.get("Date", ""),
-                row.get("Status", ""),
-                row.get("Check In", "").split(" ")[-1] if row.get("Check In") != "N/A" else "N/A",
-                row.get("Check Out", "").split(" ")[-1] if row.get("Check Out") != "N/A" else "N/A",
-                str(row.get("Worked Hours", 0)),
-                str(row.get("Late (Min)", 0))
+                str(row.get("Ходим") or row.get("Employee") or ""),
+                str(row.get("Бўлим") or row.get("Department") or ""),
+                str(row.get("Сана") or row.get("Date") or ""),
+                str(row.get("Статус") or row.get("Status") or ""),
+                check_in_val.split(" ")[-1] if " " in check_in_val else check_in_val,
+                check_out_val.split(" ")[-1] if " " in check_out_val else check_out_val,
+                f"{row.get('Иш соати') or row.get('Worked Hours') or 0} соат",
+                f"{row.get('Кечикиш (дақиқа)') or row.get('Late (Min)') or 0} мин"
             ])
 
         t = Table(table_data, colWidths=[100, 70, 65, 65, 60, 60, 55, 50])

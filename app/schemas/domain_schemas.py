@@ -52,6 +52,7 @@ class EmployeeBase(BaseModel):
     phone: Optional[str] = None
     position: str = "Sales Specialist"
     department_id: Optional[int] = None
+    store_id: Optional[int] = None
     monthly_salary: float = 0.0
     employment_date: Optional[date] = None
     work_start_time: str = "09:00"
@@ -68,6 +69,7 @@ class EmployeeUpdate(BaseModel):
     phone: Optional[str] = None
     position: Optional[str] = None
     department_id: Optional[int] = None
+    store_id: Optional[int] = None
     monthly_salary: Optional[float] = None
     work_start_time: Optional[str] = None
     work_end_time: Optional[str] = None
@@ -82,12 +84,43 @@ class FaceEncodingOut(BaseModel):
     class Config:
         from_attributes = True
 
+class StoreSettingsBase(BaseModel):
+    store_name: str
+    address: Optional[str] = ""
+    latitude: float = 41.311081
+    longitude: float = 69.240562
+    radius_meters: float = 150.0
+    working_days: Optional[str] = "Monday,Tuesday,Wednesday,Thursday,Friday,Saturday"
+    timezone: Optional[str] = "Asia/Tashkent"
+    late_tolerance_min: Optional[int] = 15
+    early_leave_tolerance_min: Optional[int] = 15
+    late_penalty_per_min: Optional[float] = 500.0
+    early_bonus_per_min: Optional[float] = 500.0
+    overtime_policy: Optional[str] = "Standard 1.5x Hourly Rate"
+    face_confidence_threshold: Optional[float] = 0.75
+
+class StoreSettingsCreate(StoreSettingsBase):
+    pass
+
+class StoreSettingsUpdate(StoreSettingsBase):
+    pass
+
+class StoreSettingsOut(StoreSettingsBase):
+    id: int
+    is_active: bool = True
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
 class EmployeeOut(EmployeeBase):
     id: int
     user_id: int
     username: str
     user: UserOut
     department: Optional[DepartmentOut] = None
+    store: Optional[StoreSettingsOut] = None
+    store_name: Optional[str] = None
     profile_photo: Optional[str] = None
     face_count: int = 0
     face_encodings: List[FaceEncodingOut] = []
@@ -103,35 +136,11 @@ class KioskEmployeeSummary(BaseModel):
     last_name: str
     position: str
     department_name: Optional[str] = "General"
+    store_id: Optional[int] = None
+    store_name: Optional[str] = None
     profile_photo: Optional[str] = None
     checked_in_today: bool = False
     checked_out_today: bool = False
-
-# --- Store Settings Schemas ---
-class StoreSettingsBase(BaseModel):
-    store_name: str
-    address: str
-    latitude: float
-    longitude: float
-    radius_meters: float
-    working_days: str
-    timezone: str
-    late_tolerance_min: int
-    early_leave_tolerance_min: int
-    late_penalty_per_min: float = 500.0
-    early_bonus_per_min: float = 500.0
-    overtime_policy: str
-    face_confidence_threshold: float
-
-class StoreSettingsUpdate(StoreSettingsBase):
-    pass
-
-class StoreSettingsOut(StoreSettingsBase):
-    id: int
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 # --- Express FaceID Attendance Schemas ---
 class ExpressAttendanceRequest(BaseModel):
@@ -181,6 +190,8 @@ class AttendanceOut(BaseModel):
     employee_id: int
     employee_name: Optional[str] = None
     department_name: Optional[str] = None
+    store_id: Optional[int] = None
+    store_name: Optional[str] = None
     date: date
     check_in_time: Optional[datetime] = None
     check_out_time: Optional[datetime] = None
@@ -257,4 +268,5 @@ class ReportFilter(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     department_id: Optional[int] = None
+    store_id: Optional[int] = None
     employee_id: Optional[int] = None

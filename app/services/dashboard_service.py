@@ -6,11 +6,17 @@ from app.models.domain import Employee, Attendance, AttendanceStatusEnum, User, 
 from app.schemas.domain_schemas import AdminDashboardStats, EmployeeDashboardStats, AttendanceOut
 from app.core.time_utils import get_uzb_now, get_uzb_today
 
-def get_admin_dashboard_metrics(db: Session) -> AdminDashboardStats:
+def get_admin_dashboard_metrics(db: Session, store_id: Optional[int] = None) -> AdminDashboardStats:
     today = get_uzb_today()
-    total_employees = db.query(Employee).filter(Employee.is_active == True).count()
+    emp_query = db.query(Employee).filter(Employee.is_active == True)
+    if store_id:
+        emp_query = emp_query.filter(Employee.store_id == store_id)
+    total_employees = emp_query.count()
 
-    attendances_today = db.query(Attendance).filter(Attendance.date == today).all()
+    att_query = db.query(Attendance).filter(Attendance.date == today)
+    if store_id:
+        att_query = att_query.join(Employee).filter(Employee.store_id == store_id)
+    attendances_today = att_query.all()
     present_today = len(attendances_today)
     absent_today = max(0, total_employees - present_today)
     
@@ -21,24 +27,33 @@ def get_admin_dashboard_metrics(db: Session) -> AdminDashboardStats:
 
     # Monthly aggregations
     first_day_month = today.replace(day=1)
-    monthly_attendances = db.query(Attendance).filter(Attendance.date >= first_day_month).all()
+    m_query = db.query(Attendance).filter(Attendance.date >= first_day_month)
+    if store_id:
+        m_query = m_query.join(Employee).filter(Employee.store_id == store_id)
+    monthly_attendances = m_query.all()
     
     monthly_late_count = sum(1 for a in monthly_attendances if a.late_minutes > 0)
     monthly_overtime_hours = round(sum(a.overtime_minutes for a in monthly_attendances) / 60.0, 1)
 
     # Recent attendances formatted
-    recent_query = db.query(Attendance).order_by(Attendance.id.desc()).limit(10).all()
+    rec_query = db.query(Attendance)
+    if store_id:
+        rec_query = rec_query.join(Employee).filter(Employee.store_id == store_id)
+    recent_query = rec_query.order_by(Attendance.id.desc()).limit(10).all()
     recent_list = []
     for att in recent_query:
         emp = att.employee
         dept_name = emp.department.name if emp and emp.department else "General"
         emp_name = f"{emp.first_name} {emp.last_name}" if emp else "Unknown"
+        st_name = emp.store.store_name if emp and emp.store else None
         
         recent_list.append(AttendanceOut(
             id=att.id,
             employee_id=att.employee_id,
             employee_name=emp_name,
             department_name=dept_name,
+            store_id=emp.store_id if emp else None,
+            store_name=st_name,
             date=att.date,
             check_in_time=att.check_in_time,
             check_out_time=att.check_out_time,

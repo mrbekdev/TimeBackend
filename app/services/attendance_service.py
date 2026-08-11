@@ -10,11 +10,22 @@ from app.core.time_utils import get_uzb_now, get_uzb_today
 from app.services.geo_service import calculate_haversine_distance
 from app.services.face_service import base64_to_cv2, extract_face_encoding, compare_face_encodings
 
-def get_store_settings(db: Session) -> StoreSettings:
+def get_store_settings(db: Session, store_id: Optional[int] = None) -> StoreSettings:
+    if store_id:
+        store = db.query(StoreSettings).filter(StoreSettings.id == store_id).first()
+        if store:
+            return store
+    
     settings = db.query(StoreSettings).first()
     if not settings:
         # Create default store settings if none exists
-        settings = StoreSettings()
+        settings = StoreSettings(
+            store_name="Дўкон #1 (Асосий)",
+            address="Филиал #1",
+            latitude=41.311081,
+            longitude=69.240562,
+            radius_meters=150.0
+        )
         db.add(settings)
         db.commit()
         db.refresh(settings)
@@ -29,7 +40,7 @@ def process_check_in(
     device_info: str = "Web Camera",
     ip_address: str = "127.0.0.1"
 ) -> Attendance:
-    store = get_store_settings(db)
+    store = get_store_settings(db, store_id=employee.store_id)
     today = get_uzb_today()
     now = get_uzb_now()
 
@@ -38,7 +49,7 @@ def process_check_in(
     if distance > store.radius_meters:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"You are outside the allowed attendance area. Distance to store is {distance:.1f}m (Allowed: {store.radius_meters:.1f}m)."
+            detail=f"You are outside the allowed attendance area for {store.store_name}. Distance to store is {distance:.1f}m (Allowed: {store.radius_meters:.1f}m)."
         )
 
     # 2. Check duplicate Check-In for today
@@ -99,6 +110,7 @@ def process_check_in(
     if not existing_attendance:
         attendance = Attendance(
             employee_id=employee.id,
+            store_id=store.id,
             date=today,
             check_in_time=now,
             status=att_status,
@@ -166,7 +178,7 @@ def process_check_out(
     device_info: str = "Web Camera",
     ip_address: str = "127.0.0.1"
 ) -> Attendance:
-    store = get_store_settings(db)
+    store = get_store_settings(db, store_id=employee.store_id)
     today = get_uzb_today()
     now = get_uzb_now()
 
@@ -188,12 +200,12 @@ def process_check_out(
             detail="You have already checked out for today."
         )
 
-    # 2. Geofence Check
+    # 2. Geofence Check against employee's assigned store
     distance = calculate_haversine_distance(lat, lng, store.latitude, store.longitude)
     if distance > store.radius_meters:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"You are outside the allowed attendance area. Distance is {distance:.1f}m (Allowed: {store.radius_meters:.1f}m)."
+            detail=f"Сиз танланган дўкон ({store.store_name}) ҳудудидан ташқаридасиз! Дўконгача масофа: {distance:.1f}м (Рухсат берилган: {store.radius_meters:.1f}м). Давомат белгиланмади!"
         )
 
     # 3. Face Recognition Verification

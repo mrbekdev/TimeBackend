@@ -20,6 +20,7 @@ def get_report_data(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     department_id: Optional[int] = None,
+    store_id: Optional[int] = None,
     employee_id: Optional[int] = None,
     report_type: str = "daily",
     db: Session = Depends(get_db),
@@ -27,7 +28,7 @@ def get_report_data(
 ):
     records = build_report_query(
         db, start_date=start_date, end_date=end_date,
-        department_id=department_id, employee_id=employee_id,
+        department_id=department_id, store_id=store_id, employee_id=employee_id,
         report_type=report_type
     )
     formatted = format_report_data(records)
@@ -38,12 +39,13 @@ def export_csv(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     department_id: Optional[int] = None,
+    store_id: Optional[int] = None,
     employee_id: Optional[int] = None,
     report_type: str = "daily",
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin)
 ):
-    records = build_report_query(db, start_date, end_date, department_id, employee_id, report_type)
+    records = build_report_query(db, start_date, end_date, department_id, store_id, employee_id, report_type)
     formatted = format_report_data(records)
     csv_str = generate_csv_report(formatted)
 
@@ -59,12 +61,13 @@ def export_excel(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     department_id: Optional[int] = None,
+    store_id: Optional[int] = None,
     employee_id: Optional[int] = None,
     report_type: str = "daily",
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin)
 ):
-    records = build_report_query(db, start_date, end_date, department_id, employee_id, report_type)
+    records = build_report_query(db, start_date, end_date, department_id, store_id, employee_id, report_type)
     formatted = format_report_data(records)
     excel_bytes = generate_excel_report(formatted)
 
@@ -80,12 +83,13 @@ def export_pdf(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     department_id: Optional[int] = None,
+    store_id: Optional[int] = None,
     employee_id: Optional[int] = None,
     report_type: str = "daily",
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin)
 ):
-    records = build_report_query(db, start_date, end_date, department_id, employee_id, report_type)
+    records = build_report_query(db, start_date, end_date, department_id, store_id, employee_id, report_type)
     formatted = format_report_data(records)
     pdf_bytes = generate_pdf_report(formatted, title=f"{report_type.capitalize()} Report")
 

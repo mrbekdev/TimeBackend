@@ -58,6 +58,7 @@ class Employee(Base):
     phone = Column(String(30), nullable=True)
     position = Column(String(100), nullable=False, default="Sales Specialist")
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
+    store_id = Column(Integer, ForeignKey("store_settings.id", ondelete="SET NULL"), nullable=True)
     monthly_salary = Column(Float, default=0.0, nullable=False)
     employment_date = Column(Date, default=date.today, nullable=False)
     work_start_time = Column(Time, default=time(9, 0), nullable=False)
@@ -68,6 +69,7 @@ class Employee(Base):
 
     user = relationship("User", back_populates="employee")
     department = relationship("Department", back_populates="employees")
+    store = relationship("StoreSettings", back_populates="employees")
     face_encodings = relationship("FaceEncoding", back_populates="employee", cascade="all, delete-orphan")
     attendances = relationship("Attendance", back_populates="employee", cascade="all, delete-orphan")
 
@@ -99,13 +101,18 @@ class StoreSettings(Base):
     early_bonus_per_min = Column(Float, default=500.0, nullable=False)  # Bonus summa (so'm / min)
     overtime_policy = Column(String(100), default="Standard 1.5x Hourly Rate", nullable=False)
     face_confidence_threshold = Column(Float, default=0.75, nullable=False) # 75% similarity threshold
+    is_active = Column(Boolean, default=True, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    employees = relationship("Employee", back_populates="store")
+    attendances = relationship("Attendance", back_populates="store")
 
 class Attendance(Base):
     __tablename__ = "attendances"
 
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    store_id = Column(Integer, ForeignKey("store_settings.id", ondelete="SET NULL"), nullable=True)
     date = Column(Date, default=date.today, index=True, nullable=False)
     check_in_time = Column(DateTime, nullable=True)
     check_out_time = Column(DateTime, nullable=True)
@@ -128,6 +135,7 @@ class Attendance(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     employee = relationship("Employee", back_populates="attendances")
+    store = relationship("StoreSettings", back_populates="attendances")
     logs = relationship("AttendanceLog", back_populates="attendance", cascade="all, delete-orphan")
 
 class AttendanceLog(Base):

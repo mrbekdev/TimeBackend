@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db
@@ -10,10 +11,11 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 @router.get("/admin", response_model=AdminDashboardStats)
 def admin_dashboard(
+    store_id: Optional[int] = None,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin)
 ):
-    return get_admin_dashboard_metrics(db)
+    return get_admin_dashboard_metrics(db, store_id=store_id)
 
 @router.get("/employee", response_model=EmployeeDashboardStats)
 def employee_dashboard(

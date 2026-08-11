@@ -82,6 +82,15 @@ def express_scan(
             detail=f"Yuz tanilmadi yoki bazaga mos kelmadi. FaceID moslik darajasi: {(best_score * 100):.1f}% (Talab etilgan: {(store.face_confidence_threshold * 100):.1f}%)."
         )
 
+    # Verify distance specifically against matched employee's assigned store
+    emp_store = get_store_settings(db, store_id=matched_employee.store_id)
+    distance = calculate_haversine_distance(payload.latitude, payload.longitude, emp_store.latitude, emp_store.longitude)
+    if distance > emp_store.radius_meters:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Сиз танланган дўкон ({emp_store.store_name}) ҳудудидан ташқаридасиз! Дўконгача масофа: {distance:.1f}м (Рухсат берилган: {emp_store.radius_meters:.1f}м). Давомат белгиланмади!"
+        )
+
     # 4. Enforce Daily Rules & Action
     if payload.action == "CHECK_IN":
         att = process_check_in(
