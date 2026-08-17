@@ -325,3 +325,78 @@ async def upload_employee_faces(
         "processed_count": processed_count,
         "total_registered": len(emp.face_encodings)
     }
+
+@router.delete("/{id}/faces/{face_id}")
+@router.delete("/{id}/faces/{face_id}/")
+@router.delete("/{id}/face-encodings/{face_id}")
+@router.delete("/{id}/face-encodings/{face_id}/")
+def delete_employee_face(
+    id: int,
+    face_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    emp = db.query(Employee).filter(Employee.id == id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Ishchi topilmadi.")
+
+    face = db.query(FaceEncoding).filter(FaceEncoding.id == face_id, FaceEncoding.employee_id == id).first()
+    if not face:
+        raise HTTPException(status_code=404, detail="Yuz rasmi topilmadi.")
+
+    # Remove physical file if present
+    if face.image_path:
+        clean_path = face.image_path.lstrip("/uploads/faces/").lstrip("uploads/faces/")
+        file_on_disk = os.path.join(settings.FACES_FOLDER, clean_path)
+        if os.path.exists(file_on_disk):
+            try:
+                os.remove(file_on_disk)
+            except Exception:
+                pass
+
+    db.delete(face)
+    db.commit()
+    db.refresh(emp)
+
+    # Reset profile photo if deleted face was profile photo
+    if not emp.face_encodings:
+        emp.profile_photo = None
+        db.commit()
+
+    return {
+        "message": "Yuz rasmi muvaffaqiyatli o'chirildi.",
+        "remaining_count": len(emp.face_encodings)
+    }
+
+@router.delete("/{id}/faces")
+@router.delete("/{id}/faces/")
+@router.delete("/{id}/face-encodings")
+@router.delete("/{id}/face-encodings/")
+def delete_all_employee_faces(
+    id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    emp = db.query(Employee).filter(Employee.id == id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Ishchi topilmadi.")
+
+    for face in emp.face_encodings:
+        if face.image_path:
+            clean_path = face.image_path.lstrip("/uploads/faces/").lstrip("uploads/faces/")
+            file_on_disk = os.path.join(settings.FACES_FOLDER, clean_path)
+            if os.path.exists(file_on_disk):
+                try:
+                    os.remove(file_on_disk)
+                except Exception:
+                    pass
+        db.delete(face)
+
+    emp.profile_photo = None
+    db.commit()
+    db.refresh(emp)
+
+    return {
+        "message": "Barcha yuz rasmlari o'chirildi.",
+        "remaining_count": 0
+    }

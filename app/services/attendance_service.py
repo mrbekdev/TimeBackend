@@ -93,18 +93,17 @@ def process_check_in(
 
     # 4. Calculate Attendance Status & Late/Early Minutes
     work_start_dt = datetime.combine(today, employee.work_start_time)
-    late_deadline_dt = work_start_dt + timedelta(minutes=store.late_tolerance_min)
 
     late_minutes = 0
     early_arrival_minutes = 0
     att_status = AttendanceStatusEnum.ON_TIME
 
-    if now > late_deadline_dt:
-        att_status = AttendanceStatusEnum.LATE
+    if now > work_start_dt:
         late_minutes = int((now - work_start_dt).total_seconds() / 60)
+        att_status = AttendanceStatusEnum.LATE
     elif now < work_start_dt:
-        att_status = AttendanceStatusEnum.EARLY_ARRIVAL
         early_arrival_minutes = int((work_start_dt - now).total_seconds() / 60)
+        att_status = AttendanceStatusEnum.EARLY_ARRIVAL
 
     # 5. Save or Update Attendance Record
     if not existing_attendance:
@@ -230,13 +229,12 @@ def process_check_out(
 
     # 4. Calculate Worked Hours, Early Leave, & Overtime
     work_end_dt = datetime.combine(today, employee.work_end_time)
-    early_deadline_dt = work_end_dt - timedelta(minutes=store.early_leave_tolerance_min)
 
     worked_seconds = (now - attendance.check_in_time).total_seconds()
     worked_hours = round(worked_seconds / 3600.0, 2)
 
     early_leave_minutes = 0
-    if now < early_deadline_dt:
+    if now < work_end_dt:
         early_leave_minutes = int((work_end_dt - now).total_seconds() / 60)
         attendance.status = AttendanceStatusEnum.EARLY_LEAVE
 
